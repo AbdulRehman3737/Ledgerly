@@ -10,12 +10,15 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Savings
@@ -38,7 +41,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -328,11 +334,13 @@ private fun BudgetSheet(
     vm: LedgerViewModel,
     onDismiss: () -> Unit,
 ) {
-    val sheetState = rememberModalBottomSheetState()
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val currency = vm.currency()
     var selectedCategoryId by rememberSaveable(initial.budget.categoryId) { mutableStateOf(initial.budget.categoryId) }
     var amount by rememberSaveable(initial.budget.amountMinor) { mutableStateOf(if (initial.budget.amountMinor > 0) Money.toInputString(initial.budget.amountMinor, currency.decimals) else "") }
     var error by remember { mutableStateOf<String?>(null) }
+    val amountFocus = remember { FocusRequester() }
+    val keyboard = LocalSoftwareKeyboardController.current
 
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState, containerColor = MaterialTheme.colorScheme.surface) {
         Column(
@@ -350,7 +358,10 @@ private fun BudgetSheet(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Column(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 300.dp)
+                    .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 categories.forEach { cat ->
@@ -360,7 +371,11 @@ private fun BudgetSheet(
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(14.dp))
                             .background(if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))
-                            .clickable { selectedCategoryId = cat.id }
+                            .clickable {
+                                selectedCategoryId = cat.id
+                                amountFocus.requestFocus()
+                                keyboard?.show()
+                            }
                             .padding(horizontal = 12.dp, vertical = 9.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
@@ -381,11 +396,20 @@ private fun BudgetSheet(
             OutlinedTextField(
                 value = amount,
                 onValueChange = { amount = com.ledgerly.app.ui.components.sanitizeAmountInput(it, currency.decimals) },
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .focusRequester(amountFocus),
                 label = { Text("Monthly amount ($currency.code)") },
                 singleLine = true,
                 shape = RoundedCornerShape(16.dp),
             )
+            OutlinedButton(
+                onClick = onDismiss,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+            ) {
+                Text("Cancel")
+            }
             if (error != null) {
                 Text(error!!, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
             }
