@@ -99,6 +99,9 @@ interface BudgetDao {
     @Query("SELECT * FROM budgets WHERE profileId = :profileId AND categoryId = :categoryId")
     suspend fun getForCategory(profileId: Long, categoryId: Long): BudgetEntity?
 
+    @Query("SELECT * FROM budgets WHERE profileId = :profileId AND categoryId IS NULL")
+    suspend fun getOverall(profileId: Long): BudgetEntity?
+
     @Query("SELECT * FROM budgets WHERE id = :id")
     suspend fun getById(id: Long): BudgetEntity?
 
@@ -113,6 +116,9 @@ interface BudgetDao {
 
     @Query("DELETE FROM budgets WHERE profileId = :profileId AND categoryId = :categoryId")
     suspend fun deleteForCategory(profileId: Long, categoryId: Long)
+
+    @Query("DELETE FROM budgets WHERE profileId = :profileId AND categoryId IS NULL")
+    suspend fun deleteOverall(profileId: Long)
 }
 
 @Dao

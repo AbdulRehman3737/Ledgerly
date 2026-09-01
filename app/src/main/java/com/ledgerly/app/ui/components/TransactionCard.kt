@@ -1,6 +1,7 @@
 package com.ledgerly.app.ui.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -17,6 +18,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -28,6 +30,9 @@ import com.ledgerly.app.ui.theme.ExpenseRed
 import com.ledgerly.app.ui.theme.ExpenseRedDark
 import com.ledgerly.app.ui.theme.IncomeGreen
 import com.ledgerly.app.ui.theme.IncomeGreenDark
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
+import java.time.format.FormatStyle
 
 @Composable
 fun TransactionRow(
@@ -36,33 +41,46 @@ fun TransactionRow(
     modifier: Modifier = Modifier,
     onClick: (() -> Unit)? = null,
     darkTheme: Boolean,
+    bordered: Boolean = true,
+    showDate: Boolean = false,
 ) {
-    val category = tx.category
-    val color = androidx.compose.ui.graphics.Color(category?.colorArgb?.toInt() ?: 0xFF64748B.toInt())
     val isIncome = tx.transaction.type == com.ledgerly.app.domain.model.TxType.INCOME
-    val amountColor = if (isIncome) {
+    val accent = if (isIncome) {
         if (darkTheme) IncomeGreenDark else IncomeGreen
     } else {
         if (darkTheme) ExpenseRedDark else ExpenseRed
     }
-    val bg = MaterialTheme.colorScheme.surfaceContainer
-    val name = category?.name ?: "Unknown"
+    val bg = if (isIncome) {
+        if (darkTheme) Color(0xFF12311F) else Color(0xFFE9F3E8)
+    } else {
+        if (darkTheme) Color(0xFF331B18) else Color(0xFFF7E7E0)
+    }
+    val shape = RoundedCornerShape(10.dp)
+    val name = tx.category?.name ?: "Unknown"
     val note = tx.transaction.note
+
+    val surfaceModifier = if (bordered) {
+        Modifier
+            .clip(shape)
+            .background(bg)
+            .border(1.dp, accent.copy(alpha = if (isIncome) 0.45f else 0.4f), shape)
+    } else {
+        Modifier
+    }
 
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(18.dp))
-            .background(bg)
+            .then(surfaceModifier)
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
-            .padding(horizontal = 14.dp, vertical = 12.dp),
+            .padding(horizontal = if (bordered) 12.dp else 0.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         IconCircle(
-            icon = IconCatalog.vector(category?.icon),
-            color = color,
-            size = 44.dp,
-            iconSize = 22.dp,
+            icon = IconCatalog.vector(tx.category?.icon),
+            color = accent,
+            size = 36.dp,
+            iconSize = 18.dp,
         )
         Spacer(Modifier.width(12.dp))
         Column(
@@ -76,6 +94,14 @@ fun TransactionRow(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+            if (showDate) {
+                Text(
+                    text = dayLabel(tx.transaction.dateEpochDay),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                )
+            }
             if (note.isNotBlank()) {
                 Text(
                     text = note,
@@ -89,10 +115,20 @@ fun TransactionRow(
         Text(
             text = if (isIncome) Money.format(Money.abs(tx.transaction.amountMinor), currency)
             else "-" + Money.format(Money.abs(tx.transaction.amountMinor), currency),
-            style = MaterialTheme.typography.titleSmall,
-            color = amountColor,
+            style = MaterialTheme.typography.titleMedium,
+            color = accent,
             textAlign = TextAlign.End,
             maxLines = 1,
         )
+    }
+}
+
+private fun dayLabel(epochDay: Long): String {
+    val date = LocalDate.ofEpochDay(epochDay)
+    val today = LocalDate.now()
+    return when (date) {
+        today -> "Today"
+        today.minusDays(1) -> "Yesterday"
+        else -> date.format(DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM))
     }
 }

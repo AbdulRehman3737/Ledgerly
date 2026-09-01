@@ -14,77 +14,121 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.shape.RoundedCornerShape
 
+// Display numerals set in a serif for an elegant, editorial money feel.
+private val LedgerSerif = FontFamily.Serif
+
 private val AppTypography = Typography(
+    // Large hero figures — the ledger "grand total".
+    displayLarge = TextStyle(
+        fontFamily = LedgerSerif,
+        fontWeight = FontWeight.SemiBold,
+        fontSize = 56.sp,
+        lineHeight = 60.sp,
+        letterSpacing = (-1.5).sp,
+        fontFeatureSettings = "tnum",
+    ),
+    displayMedium = TextStyle(
+        fontFamily = LedgerSerif,
+        fontWeight = FontWeight.SemiBold,
+        fontSize = 44.sp,
+        lineHeight = 50.sp,
+        letterSpacing = (-1).sp,
+        fontFeatureSettings = "tnum",
+    ),
     displaySmall = TextStyle(
-        fontFamily = FontFamily.Default,
-        fontWeight = FontWeight.Bold,
+        fontFamily = LedgerSerif,
+        fontWeight = FontWeight.SemiBold,
         fontSize = 36.sp,
         lineHeight = 42.sp,
-        letterSpacing = (-0.5).sp,
+        letterSpacing = (-1).sp,
+        fontFeatureSettings = "tnum",
     ),
     headlineSmall = TextStyle(
-        fontFamily = FontFamily.Default,
-        fontWeight = FontWeight.Bold,
+        fontFamily = LedgerSerif,
+        fontWeight = FontWeight.SemiBold,
         fontSize = 24.sp,
         lineHeight = 30.sp,
+        letterSpacing = (-0.4).sp,
+        fontFeatureSettings = "tnum",
     ),
     titleLarge = TextStyle(
-        fontFamily = FontFamily.Default,
+        fontFamily = LedgerSerif,
         fontWeight = FontWeight.SemiBold,
         fontSize = 20.sp,
         lineHeight = 26.sp,
+        letterSpacing = (-0.2).sp,
+        fontFeatureSettings = "tnum",
     ),
     titleMedium = TextStyle(
-        fontFamily = FontFamily.Default,
+        fontFamily = LedgerSerif,
         fontWeight = FontWeight.SemiBold,
-        fontSize = 16.sp,
-        lineHeight = 22.sp,
-        letterSpacing = 0.1.sp,
+        fontSize = 15.sp,
+        lineHeight = 21.sp,
+        letterSpacing = 0.sp,
+        fontFeatureSettings = "tnum",
     ),
     titleSmall = TextStyle(
-        fontFamily = FontFamily.Default,
+        fontFamily = LedgerSerif,
         fontWeight = FontWeight.SemiBold,
-        fontSize = 14.sp,
-        lineHeight = 20.sp,
+        fontSize = 13.sp,
+        lineHeight = 18.sp,
+        fontFeatureSettings = "tnum",
     ),
     labelLarge = TextStyle(
-        fontFamily = FontFamily.Default,
+        fontFamily = LedgerSerif,
         fontWeight = FontWeight.SemiBold,
-        fontSize = 14.sp,
-        lineHeight = 20.sp,
+        fontSize = 11.sp,
+        lineHeight = 16.sp,
+        letterSpacing = 1.2.sp,
+        fontFeatureSettings = "tnum",
     ),
     labelMedium = TextStyle(
-        fontFamily = FontFamily.Default,
+        fontFamily = LedgerSerif,
         fontWeight = FontWeight.Medium,
-        fontSize = 12.sp,
-        lineHeight = 16.sp,
+        fontSize = 11.sp,
+        lineHeight = 15.sp,
+        letterSpacing = 0.9.sp,
+        fontFeatureSettings = "tnum",
     ),
     bodyLarge = TextStyle(
-        fontFamily = FontFamily.Default,
+        fontFamily = LedgerSerif,
         fontWeight = FontWeight.Normal,
         fontSize = 16.sp,
         lineHeight = 24.sp,
+        fontFeatureSettings = "tnum",
     ),
     bodyMedium = TextStyle(
-        fontFamily = FontFamily.Default,
+        fontFamily = LedgerSerif,
         fontWeight = FontWeight.Normal,
         fontSize = 14.sp,
         lineHeight = 20.sp,
+        fontFeatureSettings = "tnum",
     ),
     bodySmall = TextStyle(
-        fontFamily = FontFamily.Default,
+        fontFamily = LedgerSerif,
         fontWeight = FontWeight.Normal,
         fontSize = 12.sp,
-        lineHeight = 16.sp,
+        lineHeight = 17.sp,
+        letterSpacing = 0.1.sp,
+        fontFeatureSettings = "tnum",
+    ),
+    labelSmall = TextStyle(
+        fontFamily = LedgerSerif,
+        fontWeight = FontWeight.Medium,
+        fontSize = 10.sp,
+        lineHeight = 14.sp,
+        letterSpacing = 0.6.sp,
+        fontFeatureSettings = "tnum",
     ),
 )
 
+// Sharper, less bubbly radii: corners stay small; large panels get gentle top radius only.
 private val AppShapes = Shapes(
-    extraSmall = RoundedCornerShape(8.dp),
-    small = RoundedCornerShape(12.dp),
-    medium = RoundedCornerShape(16.dp),
-    large = RoundedCornerShape(22.dp),
-    extraLarge = RoundedCornerShape(30.dp),
+    extraSmall = RoundedCornerShape(6.dp),
+    small = RoundedCornerShape(8.dp),
+    medium = RoundedCornerShape(10.dp),
+    large = RoundedCornerShape(14.dp),
+    extraLarge = RoundedCornerShape(16.dp),
 )
 
 private val LightColors = lightColorScheme(
@@ -107,7 +151,12 @@ private val LightColors = lightColorScheme(
     surfaceVariant = LightSurfaceVariant,
     onSurfaceVariant = LightOnSurfaceVariant,
     outline = LightOutline,
-    outlineVariant = Color(0xFFC0C9C3),
+    outlineVariant = Color(0xFFE1DAC9),
+    surfaceContainer = LightSurfaceContainer,
+    surfaceContainerLow = Color(0xFFFBF7EE),
+    surfaceContainerLowest = Color(0xFFFFFDF8),
+    surfaceContainerHigh = Color(0xFFE7E0D0),
+    surfaceContainerHighest = Color(0xFFD5CDBA),
     error = LightError,
 )
 
@@ -131,13 +180,18 @@ private val DarkColors = darkColorScheme(
     surfaceVariant = DarkSurfaceVariant,
     onSurfaceVariant = DarkOnSurfaceVariant,
     outline = DarkOutline,
-    outlineVariant = Color(0xFF3B4741),
+    outlineVariant = Color(0xFF3A362E),
+    surfaceContainer = DarkSurfaceContainer,
+    surfaceContainerLow = Color(0xFF1E1C17),
+    surfaceContainerLowest = Color(0xFF11100C),
+    surfaceContainerHigh = DarkSurfaceContainerHigh,
+    surfaceContainerHighest = Color(0xFF3A362E),
     error = DarkError,
 )
 
 @Composable
 fun LedgerlyTheme(darkTheme: Boolean, content: @Composable () -> Unit) {
-    androidx.compose.material3.MaterialTheme(
+    MaterialTheme(
         colorScheme = if (darkTheme) DarkColors else LightColors,
         typography = AppTypography,
         shapes = AppShapes,

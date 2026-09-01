@@ -9,6 +9,7 @@ import com.ledgerly.app.data.db.ProfileEntity
 import com.ledgerly.app.data.db.TransactionEntity
 import com.ledgerly.app.data.db.TransactionWithCategory
 import com.ledgerly.app.data.repository.ImportReport
+import com.ledgerly.app.data.repository.LedgerRepository
 import com.ledgerly.app.domain.money.Currencies
 import com.ledgerly.app.domain.money.CurrencyInfo
 import com.ledgerly.app.domain.model.ThemeMode
@@ -16,9 +17,9 @@ import com.ledgerly.app.domain.model.TxType
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -34,9 +35,9 @@ class LedgerViewModel(app: Application) : AndroidViewModel(app) {
     val profiles: StateFlow<List<ProfileEntity>> = repo.profiles
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
-    val currentProfile: StateFlow<ProfileEntity?> = combine(profiles, repo.currentProfileId) { list, id ->
-        list.firstOrNull { it.id == id } ?: list.firstOrNull()
-    }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
+    val currentProfile: StateFlow<ProfileEntity?> = repo.profiles
+        .map { it.firstOrNull { p -> p.id == LedgerRepository.LEDGER_PROFILE_ID } ?: it.firstOrNull() }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     val themeMode: StateFlow<ThemeMode> = repo.themeMode
         .stateIn(viewModelScope, SharingStarted.Eagerly, ThemeMode.SYSTEM)
@@ -66,16 +67,10 @@ class LedgerViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setTheme(mode: ThemeMode) = viewModelScope.launch { repo.setTheme(mode) }
 
-    fun switchProfile(id: Long) = viewModelScope.launch { repo.setActiveProfile(id) }
+    fun ensureInitialized(currencyCode: String) =
+        viewModelScope.launch { repo.ensureInitialized(currencyCode) }
 
-    // ---- Profiles ----
-
-    fun createProfile(name: String, icon: String, colorArgb: Long, currencyCode: String) =
-        viewModelScope.launch { repo.createProfile(name, icon, colorArgb, currencyCode) }
-
-    fun updateProfile(profile: ProfileEntity) = viewModelScope.launch { repo.updateProfile(profile) }
-
-    fun deleteProfile(id: Long) = viewModelScope.launch { repo.deleteProfile(id) }
+    fun setCurrency(code: String) = viewModelScope.launch { repo.setCurrency(code) }
 
     // ---- Transactions ----
 
@@ -107,6 +102,16 @@ class LedgerViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch { repo.upsertBudget(profile.id, categoryId, amountMinor) }
     }
 
+    fun upsertOverallBudget(amountMinor: Long) {
+        val profile = currentProfile.value ?: return
+        viewModelScope.launch { repo.upsertOverallBudget(profile.id, amountMinor) }
+    }
+
+    fun deleteOverallBudget() {
+        val profile = currentProfile.value ?: return
+        viewModelScope.launch { repo.deleteOverallBudget(profile.id) }
+    }
+
     fun deleteBudget(budgetId: Long) = viewModelScope.launch { repo.deleteBudget(budgetId) }
 
     // ---- Data management ----
@@ -114,6 +119,15 @@ class LedgerViewModel(app: Application) : AndroidViewModel(app) {
     suspend fun exportJson(): String = repo.exportAll()
 
     suspend fun importJson(raw: String): ImportReport = repo.importJson(raw)
+
+    suspend fun exportXlsx(): ByteArray {
+        val profileId = currentProfile.value?.id ?: LedgerRepository.LEDGER_PROFILE_ID
+        return repo.exportXlsx(profileId)
+    }
+
+    suspend fun importXlsx(bytes: ByteArray): ImportReport {
+        return repo.importXlsx(LedgerRepository.LEDGER_PROFILE_ID, bytes)
+    }
 
     fun wipeAll() = viewModelScope.launch { repo.wipeAll() }
 }

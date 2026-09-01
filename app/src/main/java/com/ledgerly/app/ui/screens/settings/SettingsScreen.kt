@@ -5,6 +5,7 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -65,9 +66,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ledgerly.app.data.db.CategoryEntity
-import com.ledgerly.app.data.db.ProfileEntity
 import com.ledgerly.app.domain.colors.Palette
 import com.ledgerly.app.domain.icons.IconCatalog
+import com.ledgerly.app.domain.money.Currencies
 import com.ledgerly.app.domain.model.ThemeMode
 import com.ledgerly.app.domain.model.TxType
 import com.ledgerly.app.ui.LedgerViewModel
@@ -76,9 +77,6 @@ import com.ledgerly.app.ui.components.ConfirmDialog
 import com.ledgerly.app.ui.components.EmptyState
 import com.ledgerly.app.ui.components.IconChoiceGrid
 import com.ledgerly.app.ui.components.IconCircle
-import com.ledgerly.app.ui.components.ProfileAvatar
-import com.ledgerly.app.ui.components.ProfileChip
-import com.ledgerly.app.ui.components.ProfileForm
 import com.ledgerly.app.ui.components.TypeSegmented
 import kotlinx.coroutines.launch
 
@@ -86,19 +84,15 @@ import kotlinx.coroutines.launch
 fun SettingsScreen(
     vm: LedgerViewModel,
     darkTheme: Boolean,
-    onProfileClick: () -> Unit,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val profiles by vm.profiles.collectAsStateWithLifecycle()
     val current by vm.currentProfile.collectAsStateWithLifecycle()
     val categoriesAll by vm.categoriesAll.collectAsStateWithLifecycle()
     val themeMode by vm.themeMode.collectAsStateWithLifecycle()
     val currency = vm.currency()
 
-    var profileForm by remember { mutableStateOf<ProfileFormState?>(null) }
     var categoryForm by remember { mutableStateOf<CategoryFormState?>(null) }
-    var deleteProfileTarget by remember { mutableStateOf<ProfileEntity?>(null) }
     var wipeTarget by remember { mutableStateOf(false) }
 
     val snack: (String) -> Unit = { msg ->
@@ -137,6 +131,39 @@ fun SettingsScreen(
         }
     }
 
+    val xlsxExportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+    ) { uri: Uri? ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val data = vm.exportXlsx()
+            val ok = if (data.isEmpty()) false else context.contentResolver.openOutputStream(uri)?.use { out ->
+                out.write(data)
+                true
+            } ?: false
+            snack(if (ok) "Spreadsheet exported" else "Export failed")
+        }
+    }
+
+    val xlsxImportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri: Uri? ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: return@launch
+            if (bytes.isEmpty()) {
+                snack("Could not read the selected file")
+                return@launch
+            }
+            val report = vm.importXlsx(bytes)
+            if (report.isSuccess) {
+                snack("Imported ${report.addedTransactions} transaction(s), ${report.addedCategories} category(ies)")
+            } else {
+                snack(report.warnings.firstOrNull() ?: "Import failed")
+            }
+        }
+    }
+
     Column(modifier = Modifier.fillMaxSize()) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 16.dp),
@@ -148,7 +175,6 @@ fun SettingsScreen(
                 color = MaterialTheme.colorScheme.onBackground,
                 modifier = Modifier.weight(1f),
             )
-            if (current != null) ProfileChip(current!!, onClick = onProfileClick)
         }
 
         Column(
@@ -176,51 +202,6 @@ fun SettingsScreen(
                                 label = { Text(label) },
                             )
                         }
-                    }
-                },
-            )
-
-            // ---- Profile ----
-            SectionCard(
-                icon = Icons.Filled.PersonAdd,
-                title = "Profiles",
-                content = {
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        profiles.forEach { profile ->
-                            val active = profile.id == current?.id
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(14.dp))
-                                    .clickable { if (!active) vm.switchProfile(profile.id) }
-                                    .padding(horizontal = 6.dp, vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                RadioButton(selected = active, onClick = { vm.switchProfile(profile.id) })
-                                ProfileAvatar(profile, 40.dp)
-                                Spacer(Modifier.width(12.dp))
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(profile.name, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
-                                    Text(
-                                        profile.currencyCode,
-                                        style = MaterialTheme.typography.labelMedium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                }
-                                TextButton(onClick = { profileForm = ProfileFormState(profile) }) { Text("Edit") }
-                                IconButton(onClick = { deleteProfileTarget = profile }) {
-                                    Icon(Icons.Filled.DeleteForever, contentDescription = "Delete profile", tint = MaterialTheme.colorScheme.error)
-                                }
-                            }
-                        }
-                    }
-                    TextButton(
-                        onClick = { profileForm = ProfileFormState(null) },
-                        modifier = Modifier.align(Alignment.Start),
-                    ) {
-                        Icon(Icons.Filled.Add, contentDescription = null)
-                        Spacer(Modifier.width(6.dp))
-                        Text("Add profile")
                     }
                 },
             )
@@ -290,13 +271,22 @@ fun SettingsScreen(
 
             // ---- Currency ----
             SectionCard(title = "Currency") {
-                Text(
-                    "This profile \"" + (current?.name ?: "") + "\" displays amounts in " +
-                        "(" + currency.code + ") " + currency.name +
-                        ". You can change it when editing the profile.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        "Amounts are displayed in (" + currency.code + ") " + currency.name + ".",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Currencies.all.forEach { c ->
+                            FilterChip(
+                                selected = c.code == currency.code,
+                                onClick = { vm.setCurrency(c.code) },
+                                label = { Text(c.code) },
+                            )
+                        }
+                    }
+                }
             }
 
             // ---- Data ----
@@ -309,7 +299,62 @@ fun SettingsScreen(
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    Spacer(Modifier.height(10.dp))
+                    Spacer(Modifier.height(14.dp))
+
+                    Text("Spreadsheet", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface)
+                    Text(
+                        "Transactions in the MoneyManager format (Category, Note, Amount, Currency, Type, Account, Date, Photos).",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        FilledTonalButton(
+                            onClick = {
+                                val base = (current?.name ?: "ledgerly").replace(Regex("[^\\p{L}\\p{N}_ -]"), "").replace(' ', '_').trim('_').ifBlank { "ledgerly" }
+                                val date = java.time.LocalDate.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyy.MM.dd"))
+                                xlsxExportLauncher.launch("MoneyManager_${base}_$date.xlsx")
+                            },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(14.dp),
+                        ) {
+                            Icon(Icons.Filled.SaveAlt, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Export .xlsx")
+                        }
+                        FilledTonalButton(
+                            onClick = {
+                                xlsxImportLauncher.launch(
+                                    arrayOf(
+                                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                        "application/octet-stream",
+                                        "*/*",
+                                    )
+                                )
+                            },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(14.dp),
+                        ) {
+                            Icon(Icons.Outlined.FileOpen, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Import .xlsx")
+                        }
+                    }
+                    Spacer(Modifier.height(14.dp))
+
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                    Spacer(Modifier.height(14.dp))
+
+                    Text("Full backup", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface)
+                    Text(
+                        "Every profile, category, budget and transaction as a single JSON file for restore or migration.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(8.dp))
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -321,7 +366,7 @@ fun SettingsScreen(
                         ) {
                             Icon(Icons.Filled.SaveAlt, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(6.dp))
-                            Text("Export")
+                            Text("Export .json")
                         }
                         FilledTonalButton(
                             onClick = { importLauncher.launch(arrayOf("application/json", "text/plain", "*/*")) },
@@ -330,7 +375,7 @@ fun SettingsScreen(
                         ) {
                             Icon(Icons.Outlined.FileOpen, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(6.dp))
-                            Text("Import")
+                            Text("Import .json")
                         }
                     }
                     Spacer(Modifier.height(4.dp))
@@ -358,15 +403,6 @@ fun SettingsScreen(
         }
     }
 
-    profileForm?.let { state ->
-        ProfileFormSheet(
-            editing = state.profile,
-            vm = vm,
-            onDismiss = { profileForm = null },
-            onDuplicate = { snack("A profile with that name already exists") },
-        )
-    }
-
     categoryForm?.let { state ->
         CategoryFormSheet(
             editing = state.category,
@@ -375,16 +411,6 @@ fun SettingsScreen(
             onDismiss = { categoryForm = null },
             onDuplicate = { snack("A category with that name already exists") },
             onInvalid = { snack("Enter a category name") },
-        )
-    }
-
-    deleteProfileTarget?.let { target ->
-        ConfirmDialog(
-            title = "Delete \"${target.name}\"?",
-            message = "All transactions, categories and budgets for this profile will be permanently deleted. This cannot be undone.",
-            confirmText = "Delete",
-            onConfirm = { vm.deleteProfile(target.id) },
-            onDismiss = { deleteProfileTarget = null },
         )
     }
 
@@ -399,8 +425,6 @@ fun SettingsScreen(
     }
 }
 
-private data class ProfileFormState(val profile: ProfileEntity?)
-
 private data class CategoryFormState(val category: CategoryEntity?)
 
 @Composable
@@ -409,12 +433,14 @@ private fun SectionCard(
     title: String,
     content: @Composable () -> Unit,
 ) {
+    val shape = RoundedCornerShape(14.dp)
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(20.dp))
+            .clip(shape)
             .background(MaterialTheme.colorScheme.surface)
-            .padding(16.dp),
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.9f), shape)
+            .padding(18.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -422,7 +448,11 @@ private fun SectionCard(
                 Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.width(20.dp))
                 Spacer(Modifier.width(8.dp))
             }
-            Text(title, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+            Text(
+                title.uppercase(),
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
         content()
     }
@@ -460,45 +490,6 @@ private fun CategoryManageRow(
                 imageVector = if (archived) Icons.Filled.Restore else Icons.Filled.Archive,
                 contentDescription = if (archived) "Restore" else "Hide",
                 tint = if (archived) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun ProfileFormSheet(
-    editing: ProfileEntity?,
-    vm: LedgerViewModel,
-    onDismiss: () -> Unit,
-    onDuplicate: () -> Unit,
-) {
-    val sheetState = rememberModalBottomSheetState()
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState, containerColor = MaterialTheme.colorScheme.surface) {
-        Column(
-            modifier = Modifier
-                .padding(start = 20.dp, end = 20.dp, bottom = 28.dp)
-                .verticalScroll(rememberScrollState()),
-        ) {
-            Text(
-                if (editing == null) "New profile" else "Edit profile",
-                style = MaterialTheme.typography.titleLarge,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-            Spacer(Modifier.height(16.dp))
-            ProfileForm(
-                initialName = editing?.name ?: "",
-                initialIcon = editing?.icon ?: IconCatalog.PROFILE_ICONS.first().key,
-                initialColor = editing?.colorArgb ?: Palette.PROFILE_COLORS.first(),
-                initialCurrency = editing?.currencyCode ?: com.ledgerly.app.domain.money.Currencies.fromCode(null).code,
-                onSubmit = { name, icon, color, cc ->
-                    if (editing == null) vm.createProfile(name, icon, color, cc) else {
-                        vm.updateProfile(editing.copy(name = name, icon = icon, colorArgb = color, currencyCode = cc))
-                    }
-                    onDismiss()
-                },
-                submitLabel = if (editing == null) "Create profile" else "Save changes",
-                onValidateName = onDuplicate,
             )
         }
     }

@@ -181,7 +181,7 @@ fun IconCircle(
     iconSize: Dp = 22.dp,
     selected: Boolean = false,
 ) {
-    val bg = color.copy(alpha = 0.18f)
+    val bg = color.copy(alpha = 0.13f)
     val iconColor = color
     Box(
         modifier = modifier
@@ -254,64 +254,6 @@ fun ColorChoiceRow(
                 }
             }
         }
-    }
-}
-
-@Composable
-fun ProfileAvatar(
-    profile: ProfileEntity,
-    size: Dp,
-    modifier: Modifier = Modifier,
-) {
-    val color = Color(profile.colorArgb.toInt())
-    Box(
-        modifier = modifier
-            .size(size)
-            .clip(CircleShape)
-            .background(color),
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(
-            IconCatalog.vector(profile.icon),
-            contentDescription = profile.name,
-            tint = if (color.luminance() > 0.55f) Color(0xFF10231C) else Color.White,
-            modifier = Modifier.size(size / 1.7f),
-        )
-    }
-}
-
-@Composable
-fun ProfileChip(
-    profile: ProfileEntity,
-    modifier: Modifier = Modifier,
-    onClick: () -> Unit,
-) {
-    val container = MaterialTheme.colorScheme.surfaceContainerHigh
-    val onContainer = MaterialTheme.colorScheme.onSurface
-    Row(
-        modifier = modifier
-            .clip(RoundedCornerShape(50))
-            .background(container)
-            .clickable(onClick = onClick)
-            .padding(start = 6.dp, end = 10.dp, top = 6.dp, bottom = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        ProfileAvatar(profile, 30.dp)
-        Spacer(Modifier.width(8.dp))
-        Text(
-            text = profile.name,
-            style = MaterialTheme.typography.titleSmall,
-            color = onContainer,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-        Spacer(Modifier.width(4.dp))
-        Icon(
-            Icons.Filled.ArrowDropDown,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(18.dp),
-        )
     }
 }
 

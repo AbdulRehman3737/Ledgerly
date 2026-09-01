@@ -43,6 +43,17 @@ class BackupCodecTest {
     }
 
     @Test
+    fun `overall budget round trips with reserved key`() {
+        val overall = BudgetEntity(id = 2, profileId = 1, categoryId = null, amountMinor = 90_000, period = BudgetPeriod.MONTHLY, createdAt = 301)
+        val export = ExportProfile(profile(), categories(), transactions(), listOf(overall))
+        val json = BackupCodec.encode(listOf(export))
+        val parsed = BackupCodec.parse(json)
+
+        assertEquals(1, parsed.profiles.first().budgets.size)
+        assertEquals(BackupCodec.OVERALL_KEY, parsed.profiles.first().budgets.first().categoryKey)
+    }
+
+    @Test
     fun `categories referenced by type-pipe-name key`() {
         val export = ExportProfile(profile(), categories(), transactions(), budgets())
         val json = BackupCodec.encode(listOf(export))

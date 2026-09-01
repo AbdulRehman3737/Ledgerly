@@ -57,6 +57,10 @@ data class ParsedBackup(
 object BackupCodec {
 
     private const val FILE_VERSION = 1
+
+    /** Reserved category key marking a budget that spans ALL monthly spending. */
+    const val OVERALL_KEY = "OVERALL"
+
     private val MIN_DAY = LocalDate.of(1970, 1, 1).toEpochDay()
     private val MAX_DAY = LocalDate.of(2200, 12, 31).toEpochDay()
 
@@ -109,7 +113,7 @@ object BackupCodec {
             val budgets = JSONArray()
             for (b in ep.budgets.sortedBy { it.id }) {
                 val j = JSONObject()
-                j.put("category", idToKey[b.categoryId] ?: fallbackKey)
+                j.put("category", if (b.categoryId == null) OVERALL_KEY else (idToKey[b.categoryId] ?: fallbackKey))
                 j.put("amount", b.amountMinor)
                 j.put("period", b.period.name)
                 budgets.put(j)

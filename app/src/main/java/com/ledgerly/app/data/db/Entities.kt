@@ -90,7 +90,7 @@ data class TransactionEntity(
 data class BudgetEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val profileId: Long,
-    val categoryId: Long,
+    val categoryId: Long?,
     val amountMinor: Long,
     val period: BudgetPeriod,
     val createdAt: Long,

@@ -1,6 +1,7 @@
 package com.ledgerly.app.ui.screens.onboarding
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -29,22 +30,19 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.ledgerly.app.domain.colors.Palette
-import com.ledgerly.app.domain.icons.IconCatalog
 import com.ledgerly.app.domain.money.Currencies
 import com.ledgerly.app.ui.LedgerViewModel
-import com.ledgerly.app.ui.components.ProfileForm
 import com.ledgerly.app.ui.theme.LightPrimary
 
 @Composable
@@ -58,7 +56,7 @@ fun OnboardingScreen(vm: LedgerViewModel, showIntro: Boolean, darkTheme: Boolean
                     darkTheme = darkTheme,
                     onNext = { step = 1 },
                 )
-                else -> CreateProfileStep(
+                else -> CurrencyStep(
                     vm = vm,
                     onBack = if (showIntro && step == 1) ({ step = 0 }) else null,
                 )
@@ -70,59 +68,53 @@ fun OnboardingScreen(vm: LedgerViewModel, showIntro: Boolean, darkTheme: Boolean
 @Composable
 private fun WelcomeStep(darkTheme: Boolean, onNext: () -> Unit) {
     val primary = MaterialTheme.colorScheme.primary
-    Box(
+    Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Brush.verticalGradient(listOf(primary.copy(alpha = if (darkTheme) 0.28f else 0.16f), MaterialTheme.colorScheme.background))),
+            .systemBarsPadding()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 28.dp, vertical = 32.dp),
+        verticalArrangement = Arrangement.Center,
     ) {
-        Column(
+        Box(
             modifier = Modifier
-                .fillMaxSize()
-                .systemBarsPadding()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 28.dp, vertical = 32.dp),
-            verticalArrangement = Arrangement.Center,
+                .size(88.dp)
+                .clip(RoundedCornerShape(22.dp))
+                .background(primary),
+            contentAlignment = Alignment.Center,
         ) {
-            Box(
-                modifier = Modifier
-                    .size(88.dp)
-                    .clip(RoundedCornerShape(26.dp))
-                    .background(primary),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    Icons.Filled.AccountBalanceWallet,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onPrimary,
-                    modifier = Modifier.size(48.dp),
-                )
-            }
-            Spacer(Modifier.height(28.dp))
-            Text(
-                "Your money,\nfriendly again.",
-                style = MaterialTheme.typography.displaySmall.copy(fontSize = 38.sp, lineHeight = 44.sp, fontWeight = FontWeight.Bold),
-                color = MaterialTheme.colorScheme.onBackground,
+            Icon(
+                Icons.Filled.AccountBalanceWallet,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onPrimary,
+                modifier = Modifier.size(48.dp),
             )
-            Spacer(Modifier.height(14.dp))
-            Text(
-                "Ledgerly is a private money tracker that works completely on your device. No accounts, no internet, no ads — just clean numbers.",
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.height(32.dp))
+        }
+        Spacer(Modifier.height(28.dp))
+        Text(
+            "Your money,\nfriendly again.",
+            style = MaterialTheme.typography.displaySmall.copy(fontSize = 38.sp, lineHeight = 44.sp, fontWeight = FontWeight.Bold),
+            color = MaterialTheme.colorScheme.onBackground,
+        )
+        Spacer(Modifier.height(14.dp))
+        Text(
+            "Ledgerly is a private money tracker that works completely on your device. No accounts, no internet, no ads — just clean numbers.",
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(32.dp))
 
-            FeatureRow(Icons.Filled.CloudOff, "100% offline", "Works in airplane mode. Nothing is uploaded anywhere.")
-            FeatureRow(Icons.Filled.Lock, "Your data stays yours", "Stored only on this device with instant local persistence.")
-            FeatureRow(Icons.Filled.AccountBalanceWallet, "Multiple profiles", "Personal, Business, Family — kept fully separate.")
+        FeatureRow(Icons.Filled.CloudOff, "100% offline", "Works in airplane mode. Nothing is uploaded anywhere.")
+        FeatureRow(Icons.Filled.Lock, "Your data stays yours", "Stored only on this device with instant local persistence.")
+        FeatureRow(Icons.Filled.AccountBalanceWallet, "One clean ledger", "Every transaction in a single, open account book.")
 
-            Spacer(Modifier.height(36.dp))
-            Button(
-                onClick = onNext,
-                modifier = Modifier.fillMaxWidth().height(56.dp),
-                shape = RoundedCornerShape(18.dp),
-            ) {
-                Text("Get started", style = MaterialTheme.typography.titleMedium)
-            }
+        Spacer(Modifier.height(36.dp))
+        Button(
+            onClick = onNext,
+            modifier = Modifier.fillMaxWidth().height(56.dp),
+            shape = RoundedCornerShape(14.dp),
+        ) {
+            Text("Get started", style = MaterialTheme.typography.titleMedium)
         }
     }
 }
@@ -133,16 +125,8 @@ private fun FeatureRow(icon: ImageVector, title: String, subtitle: String) {
         modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(
-            modifier = Modifier
-                .size(46.dp)
-                .clip(RoundedCornerShape(14.dp))
-                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
-        }
-        Spacer(Modifier.width(16.dp))
+        Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
+        Spacer(Modifier.width(14.dp))
         Column {
             Text(title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onBackground)
             Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -151,7 +135,8 @@ private fun FeatureRow(icon: ImageVector, title: String, subtitle: String) {
 }
 
 @Composable
-private fun CreateProfileStep(vm: LedgerViewModel, onBack: (() -> Unit)?) {
+private fun CurrencyStep(vm: LedgerViewModel, onBack: (() -> Unit)?) {
+    var currencyCode by rememberSaveable { mutableStateOf(Currencies.USD.code) }
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -163,27 +148,44 @@ private fun CreateProfileStep(vm: LedgerViewModel, onBack: (() -> Unit)?) {
             TextButton(onClick = onBack, modifier = Modifier.align(Alignment.Start)) { Text("Back") }
         }
         Text(
-            "Create your first profile",
+            "Open your ledger",
             style = MaterialTheme.typography.headlineSmall,
             color = MaterialTheme.colorScheme.onBackground,
         )
         Text(
-            "Profiles keep everything separate — perfect for Personal, Business and Family finances.",
+            "Everything lives in one private account book on this device. Choose the currency you will post amounts in.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(Modifier.height(20.dp))
-        ProfileForm(
-            initialName = "",
-            initialIcon = IconCatalog.AV_WALLET.key,
-            initialColor = Palette.PROFILE_COLORS.first(),
-            initialCurrency = Currencies.USD.code,
-            onSubmit = { name, icon, color, currency ->
-                vm.createProfile(name, icon, color, currency)
-            },
-            submitLabel = "Create profile",
-            onValidateName = {},
+        Text(
+            "Currency".uppercase(),
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        Spacer(Modifier.height(10.dp))
+        Currencies.all.forEach { c ->
+            val selected = c.code == currencyCode
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))
+                    .clickable { currencyCode = c.code }
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+            ) {
+                Text(c.code, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
+                Text(c.name, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
         Spacer(Modifier.height(24.dp))
+        Button(
+            onClick = { vm.ensureInitialized(currencyCode) },
+            modifier = Modifier.fillMaxWidth().height(56.dp),
+            shape = RoundedCornerShape(14.dp),
+        ) {
+            Text("Post to ledger", style = MaterialTheme.typography.titleMedium)
+        }
     }
 }

@@ -27,6 +27,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -59,7 +60,6 @@ import com.ledgerly.app.domain.model.TxType
 import com.ledgerly.app.ui.LedgerViewModel
 import com.ledgerly.app.ui.components.EmptyState
 import com.ledgerly.app.ui.components.IconCircle
-import com.ledgerly.app.ui.components.ProfileChip
 import com.ledgerly.app.ui.components.TransactionRow
 import java.time.LocalDate
 import java.time.YearMonth
@@ -86,10 +86,8 @@ fun HistoryScreen(
     darkTheme: Boolean,
     onAdd: () -> Unit,
     onEdit: (TransactionWithCategory) -> Unit,
-    onProfileClick: () -> Unit,
     snack: (message: String, actionLabel: String?, onAction: (() -> Unit)?) -> Unit,
 ) {
-    val profile by vm.currentProfile.collectAsStateWithLifecycle()
     val allTxs by vm.transactions.collectAsStateWithLifecycle()
     val categoriesAll by vm.categoriesAll.collectAsStateWithLifecycle()
     val currency = vm.currency()
@@ -145,9 +143,6 @@ fun HistoryScreen(
                 color = MaterialTheme.colorScheme.onBackground,
                 modifier = Modifier.weight(1f),
             )
-            if (profile != null) {
-                ProfileChip(profile!!, onClick = onProfileClick)
-            }
         }
         Spacer(Modifier.height(14.dp))
 
@@ -286,12 +281,12 @@ private fun DaySection(
     val net = group.items.sumOf { if (it.transaction.type == TxType.INCOME) it.transaction.amountMinor else -it.transaction.amountMinor }
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(start = 4.dp, end = 4.dp, top = 6.dp),
+            modifier = Modifier.fillMaxWidth().padding(start = 2.dp, end = 2.dp, top = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                dayLabel(group.dateEpochDay),
-                style = MaterialTheme.typography.labelLarge,
+                dayLabel(group.dateEpochDay).uppercase(),
+                style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.weight(1f),
             )
@@ -301,6 +296,7 @@ private fun DaySection(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
         Spacer(Modifier.height(2.dp))
         group.items.forEach { tx ->
             SwipeDismissRow(tx = tx, currency = currency, darkTheme = darkTheme, onEdit = onEdit, onDelete = onDelete)

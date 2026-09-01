@@ -1,6 +1,10 @@
 package com.ledgerly.app.ui.approot
 
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import androidx.compose.material.icons.filled.Add
@@ -9,10 +13,12 @@ import androidx.compose.material.icons.filled.PieChart
 import androidx.compose.material.icons.filled.Savings
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
@@ -27,6 +33,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
@@ -56,11 +63,10 @@ private val TABS = listOf(
 
 @Composable
 fun LedgerlyAppRoot(vm: LedgerViewModel, darkTheme: Boolean) {
-    val profiles by vm.profiles.collectAsStateWithLifecycle()
     val current by vm.currentProfile.collectAsStateWithLifecycle()
     val usedBefore by vm.usedBefore.collectAsStateWithLifecycle()
 
-    if (current == null || profiles.isEmpty()) {
+    if (current == null) {
         OnboardingScreen(vm = vm, showIntro = !usedBefore, darkTheme = darkTheme)
     } else {
         MainScaffold(vm = vm, darkTheme = darkTheme)
@@ -77,9 +83,6 @@ fun MainScaffold(vm: LedgerViewModel, darkTheme: Boolean) {
 
     var sheetEditTx by remember { mutableStateOf<TransactionWithCategory?>(null) }
     var showAddSheet by remember { mutableStateOf(false) }
-    var showProfileSheet by remember { mutableStateOf(false) }
-    val profiles by vm.profiles.collectAsStateWithLifecycle()
-    val currentProfile by vm.currentProfile.collectAsStateWithLifecycle()
 
     fun openEditor(tx: TransactionWithCategory?) {
         sheetEditTx = tx
@@ -108,22 +111,32 @@ fun MainScaffold(vm: LedgerViewModel, darkTheme: Boolean) {
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         bottomBar = {
-            NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
-                TABS.forEach { tab ->
-                    NavigationBarItem(
-                        selected = currentRoute == tab.route,
-                        onClick = {
-                            navController.navigate(tab.route) {
-                                popUpTo(navController.graph.findStartDestination().id) {
-                                    saveState = true
+            Column(modifier = Modifier.fillMaxWidth()) {
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
+                NavigationBar(containerColor = MaterialTheme.colorScheme.surface, tonalElevation = 0.dp) {
+                    TABS.forEach { tab ->
+                        val selected = currentRoute == tab.route
+                        NavigationBarItem(
+                            selected = selected,
+                            onClick = {
+                                navController.navigate(tab.route) {
+                                    popUpTo(navController.graph.findStartDestination().id) {
+                                        saveState = true
+                                    }
+                                    launchSingleTop = true
+                                    restoreState = true
                                 }
-                                launchSingleTop = true
-                                restoreState = true
-                            }
-                        },
-                        icon = { Icon(tab.icon, contentDescription = tab.label) },
-                        label = { Text(tab.label) },
-                    )
+                            },
+                            icon = { Icon(tab.icon, contentDescription = tab.label) },
+                            label = { Text(tab.label) },
+                            colors = NavigationBarItemDefaults.colors(
+                                selectedIconColor = MaterialTheme.colorScheme.primary,
+                                selectedTextColor = MaterialTheme.colorScheme.onSurface,
+                                unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            ),
+                        )
+                    }
                 }
             }
         },
@@ -133,6 +146,7 @@ fun MainScaffold(vm: LedgerViewModel, darkTheme: Boolean) {
                     onClick = { openEditor(null) },
                     containerColor = MaterialTheme.colorScheme.primary,
                     contentColor = MaterialTheme.colorScheme.onPrimary,
+                    shape = RoundedCornerShape(18.dp),
                 ) {
                     Icon(Icons.Filled.Add, contentDescription = "Add transaction")
                 }
@@ -152,7 +166,6 @@ fun MainScaffold(vm: LedgerViewModel, darkTheme: Boolean) {
                     onAdd = { openEditor(null) },
                     onEdit = { openEditor(it) },
                     onNavigate = { route -> navController.navigate(route) },
-                    onProfileClick = { showProfileSheet = true },
                 )
             }
             composable("history") {
@@ -161,18 +174,17 @@ fun MainScaffold(vm: LedgerViewModel, darkTheme: Boolean) {
                     darkTheme = darkTheme,
                     onAdd = { openEditor(null) },
                     onEdit = { openEditor(it) },
-                    onProfileClick = { showProfileSheet = true },
                     snack = { message, label, action -> snack(message, label, action) },
                 )
             }
             composable("stats") {
-                StatsScreen(vm = vm, darkTheme = darkTheme, onProfileClick = { showProfileSheet = true })
+                StatsScreen(vm = vm, darkTheme = darkTheme)
             }
             composable("budgets") {
-                BudgetsScreen(vm = vm, darkTheme = darkTheme, onProfileClick = { showProfileSheet = true })
+                BudgetsScreen(vm = vm, darkTheme = darkTheme)
             }
             composable("settings") {
-                SettingsScreen(vm = vm, darkTheme = darkTheme, onProfileClick = { showProfileSheet = true })
+                SettingsScreen(vm = vm, darkTheme = darkTheme)
             }
         }
     }
@@ -184,22 +196,6 @@ fun MainScaffold(vm: LedgerViewModel, darkTheme: Boolean) {
             editing = sheetEditTx,
             onDismiss = { showAddSheet = false },
             onSaved = { notifySaved() },
-        )
-    }
-
-    if (showProfileSheet) {
-        com.ledgerly.app.ui.components.ProfileSwitcherSheet(
-            profiles = profiles,
-            currentId = currentProfile?.id ?: -1,
-            onSelect = {
-                vm.switchProfile(it)
-                showProfileSheet = false
-            },
-            onManage = {
-                showProfileSheet = false
-                navController.navigate("settings")
-            },
-            onDismiss = { showProfileSheet = false },
         )
     }
 }

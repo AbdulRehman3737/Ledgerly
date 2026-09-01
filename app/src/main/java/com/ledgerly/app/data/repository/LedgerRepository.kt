@@ -12,6 +12,9 @@ import com.ledgerly.app.data.export.BackupCodec
 import com.ledgerly.app.data.export.ExportProfile
 import com.ledgerly.app.data.export.ParsedBackup
 import com.ledgerly.app.data.export.ParsedCategory
+import com.ledgerly.app.data.export.XlsxCodec
+import com.ledgerly.app.data.export.XlsxRow
+import com.ledgerly.app.domain.colors.Palette
 import com.ledgerly.app.domain.icons.IconCatalog
 import com.ledgerly.app.domain.money.Currencies
 import com.ledgerly.app.domain.model.BudgetPeriod
@@ -34,7 +37,7 @@ data class ImportReport(
 class LedgerRepository(private val db: LedgerDatabase) {
 
     companion object {
-        const val KEY_CURRENT_PROFILE = "current_profile_id"
+        const val LEDGER_PROFILE_ID = 1L
         const val KEY_THEME = "theme_mode"
         const val KEY_USED = "used_before"
     }
@@ -48,9 +51,6 @@ class LedgerRepository(private val db: LedgerDatabase) {
     // ---- Observables ----
 
     val profiles: Flow<List<ProfileEntity>> = profileDao.observeAll()
-
-    val currentProfileId: Flow<Long?> = settingsDao.observe(KEY_CURRENT_PROFILE)
-        .map { it?.value?.toLongOrNull() }
 
     val themeMode: Flow<ThemeMode> = settingsDao.observe(KEY_THEME).map {
         when (it?.value) {
@@ -80,52 +80,42 @@ class LedgerRepository(private val db: LedgerDatabase) {
         settingsDao.put(AppSettingEntity(KEY_THEME, mode.name))
     }
 
-    suspend fun setActiveProfile(id: Long) {
-        settingsDao.put(AppSettingEntity(KEY_CURRENT_PROFILE, id.toString()))
+    /** The id of the single ledger row, reusing whatever row already exists on a migrated DB. */
+    private suspend fun ledgerId(): Long {
+        profileDao.observeAll().first().firstOrNull()?.let { return it.id }
+        return LEDGER_PROFILE_ID
+    }
+
+    /** Ensures the single ledger row exists, seeding default categories on first run. Idempotent. */
+    suspend fun ensureInitialized(currencyCode: String) {
+        val existing = profileDao.observeAll().first().firstOrNull()
+        if (existing != null) {
+            if (currencyCode.isNotBlank() && !currencyCode.equals(existing.currencyCode, ignoreCase = true)) {
+                profileDao.update(existing.copy(currencyCode = Currencies.fromCode(currencyCode).code))
+            }
+            settingsDao.put(AppSettingEntity(KEY_USED, "1"))
+            return
+        }
+        val id = profileDao.insert(
+            ProfileEntity(
+                id = LEDGER_PROFILE_ID,
+                name = "Ledger",
+                icon = IconCatalog.AV_WALLET.key,
+                colorArgb = 0x0F5A45L,
+                currencyCode = Currencies.fromCode(currencyCode).code,
+                createdAt = System.currentTimeMillis(),
+            )
+        )
+        if (id == LEDGER_PROFILE_ID) seedCategories(LEDGER_PROFILE_ID)
+        settingsDao.put(AppSettingEntity(KEY_USED, "1"))
+    }
+
+    suspend fun setCurrency(code: String) {
+        val profile = profileDao.getById(ledgerId()) ?: return
+        profileDao.update(profile.copy(currencyCode = Currencies.fromCode(code).code))
     }
 
     // ---- Profiles ----
-
-    suspend fun createProfile(name: String, icon: String, colorArgb: Long, currencyCode: String): Long {
-        val taken = profileDao.observeAll().first().map { it.name.trim() }.toMutableSet()
-        var finalName = name.trim().ifEmpty { "Profile" }
-        var suffix = 2
-        while (taken.contains(finalName)) {
-            finalName = "${name.trim()} ($suffix)"
-            suffix++
-        }
-        val profile = ProfileEntity(
-            name = finalName,
-            icon = icon.ifBlank { IconCatalog.AV_WALLET.key },
-            colorArgb = colorArgb,
-            currencyCode = Currencies.fromCode(currencyCode).code,
-            createdAt = System.currentTimeMillis(),
-        )
-        val id = profileDao.insert(profile)
-        if (id != 0L) {
-            seedCategories(id)
-            settingsDao.put(AppSettingEntity(KEY_CURRENT_PROFILE, id.toString()))
-            settingsDao.put(AppSettingEntity(KEY_USED, "1"))
-        }
-        return id
-    }
-
-    suspend fun updateProfile(profile: ProfileEntity) {
-        profileDao.update(profile)
-    }
-
-    suspend fun deleteProfile(id: Long) {
-        val profile = profileDao.getById(id) ?: return
-        profileDao.delete(profile)
-        val remaining = profileDao.observeAll().first()
-        if (remaining.isNotEmpty()) {
-            if (profileDao.getById(remaining.first().id) != null) {
-                settingsDao.put(AppSettingEntity(KEY_CURRENT_PROFILE, remaining.first().id.toString()))
-            }
-        } else {
-            settingsDao.put(AppSettingEntity(KEY_CURRENT_PROFILE, ""))
-        }
-    }
 
     private suspend fun seedCategories(profileId: Long) {
         for (row in Seed.DEFAULT_CATEGORIES) {
@@ -269,6 +259,27 @@ class LedgerRepository(private val db: LedgerDatabase) {
         }
     }
 
+    suspend fun upsertOverallBudget(profileId: Long, amountMinor: Long): Long {
+        require(amountMinor > 0) { "Budget amount must be positive" }
+        val existing = budgetDao.getOverall(profileId)
+        val entity = BudgetEntity(
+            id = existing?.id ?: 0,
+            profileId = profileId,
+            categoryId = null,
+            amountMinor = amountMinor,
+            period = BudgetPeriod.MONTHLY,
+            createdAt = existing?.createdAt ?: System.currentTimeMillis(),
+        )
+        return if (existing != null) {
+            budgetDao.update(entity)
+            entity.id
+        } else {
+            budgetDao.insert(entity)
+        }
+    }
+
+    suspend fun deleteOverallBudget(profileId: Long) = budgetDao.deleteOverall(profileId)
+
     suspend fun deleteBudget(budgetId: Long) {
         val entity = budgetDao.getById(budgetId) ?: return
         budgetDao.delete(entity)
@@ -277,90 +288,164 @@ class LedgerRepository(private val db: LedgerDatabase) {
     // ---- Export / Import ----
 
     suspend fun exportAll(): String {
-        val profiles = profileDao.observeAll().first()
-        val bundle = profiles.map { p ->
+        val id = ledgerId()
+        val ledger = profileDao.getById(id) ?: return "{}"
+        val bundle = listOf(
             ExportProfile(
-                profile = p,
-                categories = categoryDao.observeAll(p.id).first(),
-                transactions = transactionDao.observeAll(p.id).first().map { it.transaction },
-                budgets = budgetDao.observeAll(p.id).first(),
+                profile = ledger,
+                categories = categoryDao.observeAll(id).first(),
+                transactions = transactionDao.observeAll(id).first().map { it.transaction },
+                budgets = budgetDao.observeAll(id).first(),
             )
-        }
+        )
         return BackupCodec.encode(bundle)
     }
 
     suspend fun importJson(raw: String): ImportReport = applyImport(BackupCodec.parse(raw))
 
-    private suspend fun applyImport(backup: ParsedBackup): ImportReport {
-        val taken = profileDao.observeAll().first().map { it.name.trim() }.toMutableSet()
-        var imported = 0
+    /** Builds an .xlsx spreadsheet of every transaction in [profileId], matching the MoneyManager layout. */
+    suspend fun exportXlsx(profileId: Long): ByteArray {
+        val profile = profileDao.getById(profileId) ?: return ByteArray(0)
+        val categories = categoryDao.observeAll(profileId).first().associateBy { it.id }
+        val transactions = transactionDao.observeAll(profileId).first()
+        val rows = transactions.map { twc ->
+            XlsxRow(
+                category = twc.category?.name ?: "Other",
+                note = twc.transaction.note,
+                amountMinor = twc.transaction.amountMinor,
+                currencyCode = profile.currencyCode,
+                type = twc.transaction.type,
+                dateEpochDay = twc.transaction.dateEpochDay,
+            )
+        }
+        return XlsxCodec.encode(rows)
+    }
+
+    /** Imports an .xlsx spreadsheet into [profileId], reusing matching categories and creating new ones. */
+    suspend fun importXlsx(profileId: Long, bytes: ByteArray): ImportReport {
+        val parsed = XlsxCodec.parse(bytes)
         var addedCategories = 0
         var addedTransactions = 0
-        var addedBudgets = 0
 
-        for (profile in backup.profiles) {
-            var finalName = profile.name.trim()
-            var suffix = 2
-            while (taken.contains(finalName)) {
-                finalName = "${profile.name.trim()} ($suffix)"
-                suffix++
-            }
-            taken += finalName
-
-            val newProfileId = profileDao.insert(
-                ProfileEntity(
-                    name = finalName,
-                    icon = profile.icon,
-                    colorArgb = profile.colorArgb,
-                    currencyCode = Currencies.fromCode(profile.currencyCode).code,
-                    createdAt = if (profile.createdAt <= 0) System.currentTimeMillis() else profile.createdAt,
-                )
-            )
-            if (newProfileId == 0L) continue
-            imported++
-
+        if (parsed.rows.isNotEmpty()) {
+            val existing = categoryDao.getActive(profileId)
             val idByKey = mutableMapOf<String, Long>()
-            for (c in profile.categories) {
-                val key = BackupCodec.categoryKey(c.type, c.name)
-                if (idByKey.containsKey(key)) continue
-                val newId = categoryDao.insert(toEntity(newProfileId, c))
-                if (newId != 0L) idByKey[key] = newId
-            }
+            val profileCurrency = profileDao.getById(profileId)?.currencyCode
 
-            for (t in profile.transactions) {
-                val catId = idByKey[t.categoryKey]
-                    ?: resolveImportCategory(newProfileId, t.type, idByKey)
-                    ?: continue
+            for (r in parsed.rows) {
+                val key = r.type.name + "|" + r.categoryName
+                val categoryId = existing.firstOrNull {
+                    it.type == r.type && it.name.equals(r.categoryName, ignoreCase = true)
+                }?.id ?: idByKey[key] ?: run {
+                    val newId = categoryDao.insert(
+                        CategoryEntity(
+                            profileId = profileId,
+                            name = r.categoryName,
+                            type = r.type,
+                            icon = if (r.type == TxType.EXPENSE) IconCatalog.OTHER.key else IconCatalog.SALARY.key,
+                            colorArgb = Palette.CATEGORY_COLORS[(r.categoryName.hashCode() and 0x7fffffff) % Palette.CATEGORY_COLORS.size],
+                            isSystem = false,
+                        )
+                    )
+                    if (newId != 0L) {
+                        idByKey[key] = newId
+                        addedCategories++
+                    }
+                    newId
+                }
+                if (categoryId <= 0L) continue
                 transactionDao.insert(
                     TransactionEntity(
-                        profileId = newProfileId,
-                        categoryId = catId,
-                        type = t.type,
-                        amountMinor = t.amountMinor,
-                        dateEpochDay = t.dateEpochDay,
-                        note = t.note,
-                        createdAt = t.createdAt,
+                        profileId = profileId,
+                        categoryId = categoryId,
+                        type = r.type,
+                        amountMinor = r.amountMinor,
+                        dateEpochDay = r.dateEpochDay,
+                        note = r.note,
+                        createdAt = System.currentTimeMillis(),
                     )
                 )
                 addedTransactions++
             }
 
-            for (b in profile.budgets) {
-                val catId = idByKey[b.categoryKey] ?: continue
-                budgetDao.insert(
-                    BudgetEntity(
-                        profileId = newProfileId,
-                        categoryId = catId,
-                        amountMinor = b.amountMinor,
-                        period = b.period,
-                        createdAt = System.currentTimeMillis(),
-                    )
-                )
-                addedBudgets++
+            if (profileCurrency != null) {
+                for (r in parsed.rows) {
+                    val code = Currencies.fromCode(r.currencyCode).code
+                    if (!code.equals(profileCurrency, ignoreCase = true)) {
+                        parsed.warnings += "Row ${r.rowNumber}: currency '$code' differs from profile currency; amounts added as-is."
+                    }
+                }
             }
+        } else {
+            parsed.warnings += "No importable rows found in the spreadsheet."
+        }
+
+        return ImportReport(
+            importedProfiles = if (addedTransactions > 0) 1 else 0,
+            addedCategories = addedCategories,
+            addedTransactions = addedTransactions,
+            addedBudgets = 0,
+            warnings = parsed.warnings,
+        )
+    }
+
+    private suspend fun applyImport(backup: ParsedBackup): ImportReport {
+        ensureInitialized("") // guarantee the single ledger row exists
+        val ledgerId = ledgerId()
+        var addedCategories = 0
+        var addedTransactions = 0
+        var addedBudgets = 0
+
+        if (backup.profiles.size > 1) {
+            backup.warnings += "This backup contains ${backup.profiles.size} profiles, but Ledgerly now keeps a single ledger. Only the first profile was imported."
+        }
+        val profile = backup.profiles.firstOrNull()
+            ?: return ImportReport(0, 0, 0, 0, backup.warnings)
+
+        val idByKey = mutableMapOf<String, Long>()
+        for (c in profile.categories) {
+            val key = BackupCodec.categoryKey(c.type, c.name)
+            if (idByKey.containsKey(key)) continue
+            val newId = categoryDao.insert(toEntity(ledgerId, c))
+            if (newId != 0L) idByKey[key] = newId
+        }
+
+        for (t in profile.transactions) {
+            val catId = idByKey[t.categoryKey]
+                ?: resolveImportCategory(ledgerId, t.type, idByKey)
+                ?: continue
+            transactionDao.insert(
+                TransactionEntity(
+                    profileId = ledgerId,
+                    categoryId = catId,
+                    type = t.type,
+                    amountMinor = t.amountMinor,
+                    dateEpochDay = t.dateEpochDay,
+                    note = t.note,
+                    createdAt = t.createdAt,
+                )
+            )
+            addedTransactions++
+        }
+
+        for (b in profile.budgets) {
+            val categoryId = when {
+                b.categoryKey.equals(BackupCodec.OVERALL_KEY, ignoreCase = true) -> null
+                else -> idByKey[b.categoryKey]
+            } ?: continue
+            budgetDao.insert(
+                BudgetEntity(
+                    profileId = ledgerId,
+                    categoryId = categoryId,
+                    amountMinor = b.amountMinor,
+                    period = b.period,
+                    createdAt = System.currentTimeMillis(),
+                )
+            )
+            addedBudgets++
         }
         return ImportReport(
-            importedProfiles = imported,
+            importedProfiles = 1,
             addedCategories = addedCategories,
             addedTransactions = addedTransactions,
             addedBudgets = addedBudgets,
@@ -403,7 +488,6 @@ class LedgerRepository(private val db: LedgerDatabase) {
     suspend fun wipeAll() {
         val profiles = profileDao.observeAll().first()
         for (p in profiles) profileDao.delete(p)
-        settingsDao.put(AppSettingEntity(KEY_CURRENT_PROFILE, ""))
         settingsDao.put(AppSettingEntity(KEY_USED, ""))
     }
 }

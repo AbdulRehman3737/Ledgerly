@@ -1,9 +1,12 @@
 package com.ledgerly.app.ui.screens.budgets
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -27,11 +30,9 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -41,6 +42,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
@@ -64,23 +66,23 @@ import com.ledgerly.app.ui.components.DonutSlice
 import com.ledgerly.app.ui.components.EmptyState
 import com.ledgerly.app.ui.components.FractionBar
 import com.ledgerly.app.ui.components.IconCircle
-import com.ledgerly.app.ui.components.ProfileChip
 import com.ledgerly.app.ui.components.animatedLong
 import com.ledgerly.app.ui.theme.AmberWarn
 
 private data class BudgetUi(
     val budget: BudgetEntity,
-    val category: CategoryEntity,
+    val category: CategoryEntity?,
     val spent: Long,
-)
+) {
+    // Overall budget uses categoryId == null and is shown first with a ledger "grand total" treatment.
+    val isOverall: Boolean get() = category == null
+}
 
 @Composable
 fun BudgetsScreen(
     vm: LedgerViewModel,
     darkTheme: Boolean,
-    onProfileClick: () -> Unit,
 ) {
-    val profile by vm.currentProfile.collectAsStateWithLifecycle()
     val txs by vm.transactions.collectAsStateWithLifecycle()
     val budgets by vm.budgets.collectAsStateWithLifecycle()
     val categories by vm.categoriesAll.collectAsStateWithLifecycle()
@@ -92,16 +94,28 @@ fun BudgetsScreen(
     val catById = categories.associateBy { it.id }
     val activeCatIds = categories.filter { !it.archived }.map { it.id }.toSet()
     val period = Periods.of(PeriodType.THIS_MONTH)
+    val monthExpense = Statistics.expense(txs, period)
+
+    val overall = budgets.firstOrNull { it.categoryId == null }?.let {
+        BudgetUi(it, null, monthExpense)
+    }
+
     val list = budgets.mapNotNull { b ->
-        val cat = catById[b.categoryId] ?: return@mapNotNull null
-        BudgetUi(b, cat, Statistics.spentForCategory(txs, b.categoryId, period))
-    }.sortedBy { it.category.name.lowercase() }
+        val catId = b.categoryId ?: return@mapNotNull null
+        val cat = catById[catId] ?: return@mapNotNull null
+        BudgetUi(b, cat, Statistics.spentForCategory(txs, b.categoryId ?: 0L, period))
+    }.sortedBy { it.category!!.name.lowercase() }
 
-    val visible = list.filter { it.category.id in activeCatIds }
-    val archived = list.filter { it.category.id !in activeCatIds }
+    val visible = list.filter { it.category!!.id in activeCatIds }
+    val archived = list.filter { it.category!!.id !in activeCatIds }
 
-    val totalLimits = visible.sumOf { it.budget.amountMinor }
-    val totalSpent = visible.sumOf { it.spent.coerceAtMost(it.budget.amountMinor) }
+    // Totals include the overall cap; overall spent counts ALL month spending (not capped per category).
+    val catLimits = visible.sumOf { it.budget.amountMinor }
+    val catSpent = visible.sumOf { it.spent.coerceAtMost(it.budget.amountMinor) }
+    val overallLimit = overall?.budget?.amountMinor ?: 0L
+    val overallSpentCapped = (overall?.spent ?: 0L).coerceAtMost(overallLimit)
+    val totalLimits = catLimits + overallLimit
+    val totalSpent = catSpent + overallSpentCapped
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -116,23 +130,23 @@ fun BudgetsScreen(
                     color = MaterialTheme.colorScheme.onBackground,
                     modifier = Modifier.weight(1f),
                 )
-                if (profile != null) ProfileChip(profile!!, onClick = onProfileClick)
             }
         }
 
         item { Spacer(Modifier.height(2.dp)) }
 
-        if (visible.isEmpty() && archived.isEmpty()) {
+        if (overall == null && visible.isEmpty() && archived.isEmpty()) {
             item {
                 Column(modifier = Modifier.fillMaxWidth()) {
                     EmptyState(
                         icon = Icons.Filled.Savings,
                         title = "No budgets yet",
-                        message = "Set a monthly limit for any expense category and track how close you are.",
+                        message = "Set a monthly overall cap, or a limit for any expense category, and track how close you are.",
                         actionLabel = "Create a budget",
                         onAction = {
                             val first = categories.firstOrNull { it.type == TxType.EXPENSE && !it.archived }
-                            if (first != null) budgetEditor = BudgetUi(BudgetEntity(0, 0, first.id, 0, com.ledgerly.app.domain.model.BudgetPeriod.MONTHLY, 0), first, 0)
+                            budgetEditor = if (first == null) BudgetUi(BudgetEntity(0, 0, null, 0, com.ledgerly.app.domain.model.BudgetPeriod.MONTHLY, 0), null, 0)
+                            else BudgetUi(BudgetEntity(0, 0, first.id, 0, com.ledgerly.app.domain.model.BudgetPeriod.MONTHLY, 0), first, 0)
                         },
                     )
                 }
@@ -140,6 +154,17 @@ fun BudgetsScreen(
         } else {
             item {
                 BudgetSummaryCard(totalLimits, totalSpent, currency)
+            }
+
+            if (overall != null) {
+                item {
+                    BudgetCard(
+                        item = overall,
+                        currency = currency,
+                        onChange = { budgetEditor = overall },
+                        onDelete = { deleteTarget = overall },
+                    )
+                }
             }
 
             items(visible, key = { it.budget.id }) { item ->
@@ -174,7 +199,7 @@ fun BudgetsScreen(
             OutlinedButton(
                 onClick = {
                     val first = categories.firstOrNull { it.type == TxType.EXPENSE && !it.archived }
-                    if (first != null) budgetEditor = BudgetUi(BudgetEntity(0, 0, first.id, 0, com.ledgerly.app.domain.model.BudgetPeriod.MONTHLY, 0), first, 0)
+                    budgetEditor = BudgetUi(BudgetEntity(0, 0, first?.id, 0, com.ledgerly.app.domain.model.BudgetPeriod.MONTHLY, 0), first, 0)
                 },
                 modifier = Modifier.fillMaxWidth().height(52.dp),
                 shape = RoundedCornerShape(16.dp),
@@ -199,7 +224,7 @@ fun BudgetsScreen(
     deleteTarget?.let { target ->
         ConfirmDialog(
             title = "Delete budget?",
-            message = "Remove the monthly budget for ${target.category.name}? Your transactions are not affected.",
+            message = if (target.isOverall) "Remove your overall monthly budget? Your transactions are not affected." else "Remove the monthly budget for ${target.category!!.name}? Your transactions are not affected.",
             confirmText = "Delete",
             onConfirm = { vm.deleteBudget(target.budget.id) },
             onDismiss = { deleteTarget = null },
@@ -218,9 +243,10 @@ private fun BudgetSummaryCard(totalLimits: Long, totalSpent: Long, currency: com
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(24.dp))
+            .clip(RoundedCornerShape(14.dp))
             .background(MaterialTheme.colorScheme.surface)
-            .padding(20.dp),
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.9f), RoundedCornerShape(14.dp))
+            .padding(16.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             DonutChart(
@@ -238,7 +264,7 @@ private fun BudgetSummaryCard(totalLimits: Long, totalSpent: Long, currency: com
             }
             Spacer(Modifier.width(18.dp))
             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text("This month", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("This month".uppercase(), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 val spent = animatedLong(totalSpent)
                 Text(
                     Money.format(spent, currency),
@@ -269,31 +295,43 @@ private fun BudgetCard(
     val limit = item.budget.amountMinor
     val fraction = spent.toFloat() / limit.toFloat()
     val over = spent > limit
+    val isOverall = item.isOverall
     val color = when {
         over -> MaterialTheme.colorScheme.error
         fraction > 0.8f -> AmberWarn
-        else -> Color(cat.colorArgb.toInt())
+        isOverall -> MaterialTheme.colorScheme.primary
+        else -> Color(cat!!.colorArgb.toInt())
     }
     val remaining = limit - spent
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(22.dp))
+            .clip(RoundedCornerShape(14.dp))
             .background(MaterialTheme.colorScheme.surface)
+            .border(1.dp, if (isOverall) color.copy(alpha = 0.6f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.9f), RoundedCornerShape(14.dp))
             .padding(16.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            IconCircle(
-                icon = IconCatalog.vector(cat.icon),
-                color = Color(cat.colorArgb.toInt()),
-                size = 42.dp,
-                iconSize = 21.dp,
-            )
+            if (isOverall) {
+                IconCircle(
+                    icon = Icons.Filled.Savings,
+                    color = color,
+                    size = 42.dp,
+                    iconSize = 21.dp,
+                )
+            } else {
+                IconCircle(
+                    icon = IconCatalog.vector(cat!!.icon),
+                    color = Color(cat.colorArgb.toInt()),
+                    size = 42.dp,
+                    iconSize = 21.dp,
+                )
+            }
             Spacer(Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
-                Text(cat.name, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
-                Text("Monthly budget", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(if (isOverall) "Overall" else cat!!.name, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+                Text(if (isOverall) "ALL SPENDING · MONTHLY" else "MONTHLY", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Text(
                 Money.format(limit, currency),
@@ -326,7 +364,6 @@ private fun BudgetCard(
     }
 }
 
-@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 private fun BudgetSheet(
     categories: List<CategoryEntity>,
@@ -334,19 +371,42 @@ private fun BudgetSheet(
     vm: LedgerViewModel,
     onDismiss: () -> Unit,
 ) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val currency = vm.currency()
     var selectedCategoryId by rememberSaveable(initial.budget.categoryId) { mutableStateOf(initial.budget.categoryId) }
     var amount by rememberSaveable(initial.budget.amountMinor) { mutableStateOf(if (initial.budget.amountMinor > 0) Money.toInputString(initial.budget.amountMinor, currency.decimals) else "") }
     var error by remember { mutableStateOf<String?>(null) }
     val amountFocus = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
+    val scrimInteraction = remember { MutableInteractionSource() }
+    val scrollState = rememberScrollState()
 
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState, containerColor = MaterialTheme.colorScheme.surface) {
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .background(Color.Black.copy(alpha = 0.32f))
+                .clickable(interactionSource = scrimInteraction, indication = null, onClick = onDismiss),
+        )
         Column(
-            modifier = Modifier.padding(start = 20.dp, end = 20.dp, bottom = 28.dp),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .heightIn(max = maxHeight)
+                .shadow(elevation = 24.dp, shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp))
+                .clip(RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp))
+                .background(MaterialTheme.colorScheme.surface)
+                .verticalScroll(scrollState)
+                .padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 28.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
+            Box(
+                modifier = Modifier
+                    .padding(top = 10.dp)
+                    .size(width = 36.dp, height = 4.dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f))
+                    .align(Alignment.CenterHorizontally),
+            )
             Text(
                 if (initial.budget.amountMinor > 0) "Edit budget" else "Set a budget",
                 style = MaterialTheme.typography.titleLarge,
@@ -364,6 +424,34 @@ private fun BudgetSheet(
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(if (selectedCategoryId == null) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))
+                        .clickable {
+                            selectedCategoryId = null
+                            amountFocus.requestFocus()
+                            keyboard?.show()
+                        }
+                        .padding(horizontal = 12.dp, vertical = 9.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    IconCircle(
+                        icon = Icons.Filled.Savings,
+                        color = MaterialTheme.colorScheme.primary,
+                        size = 34.dp,
+                        iconSize = 17.dp,
+                    )
+                    Spacer(Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Overall", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
+                        Text("A cap for ALL monthly spending", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    if (selectedCategoryId == null) {
+                        Text("Selected", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                    }
+                }
                 categories.forEach { cat ->
                     val selected = selectedCategoryId == cat.id
                     Row(
@@ -420,7 +508,8 @@ private fun BudgetSheet(
                         error = "Enter a valid monthly amount"
                         return@Button
                     }
-                    vm.upsertBudget(selectedCategoryId, minor)
+                    val catId = selectedCategoryId
+                    if (catId == null) vm.upsertOverallBudget(minor) else vm.upsertBudget(catId, minor)
                     onDismiss()
                 },
                 modifier = Modifier.fillMaxWidth().height(52.dp),

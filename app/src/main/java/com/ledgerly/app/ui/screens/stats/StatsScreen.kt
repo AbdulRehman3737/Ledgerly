@@ -1,6 +1,7 @@
 package com.ledgerly.app.ui.screens.stats
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -53,7 +54,6 @@ import com.ledgerly.app.ui.components.DonutSlice
 import com.ledgerly.app.ui.components.EmptyState
 import com.ledgerly.app.ui.components.FractionBar
 import com.ledgerly.app.ui.components.GroupedBarChart
-import com.ledgerly.app.ui.components.ProfileChip
 import com.ledgerly.app.ui.components.TrendLineChart
 import com.ledgerly.app.ui.theme.ExpenseRedDark
 import com.ledgerly.app.ui.theme.IncomeGreenDark
@@ -65,9 +65,7 @@ import java.time.format.DateTimeFormatter
 fun StatsScreen(
     vm: LedgerViewModel,
     darkTheme: Boolean,
-    onProfileClick: () -> Unit,
 ) {
-    val profile by vm.currentProfile.collectAsStateWithLifecycle()
     val txs by vm.transactions.collectAsStateWithLifecycle()
     val currency = vm.currency()
 
@@ -98,9 +96,6 @@ fun StatsScreen(
                 color = MaterialTheme.colorScheme.onBackground,
                 modifier = Modifier.weight(1f),
             )
-            if (profile != null) {
-                ProfileChip(profile!!, onClick = onProfileClick)
-            }
         }
 
         Row(
@@ -181,12 +176,13 @@ private fun StatsCard(title: String, content: @Composable ColumnScope.() -> Unit
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(24.dp))
+            .clip(RoundedCornerShape(14.dp))
             .background(MaterialTheme.colorScheme.surface)
-            .padding(18.dp),
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.9f), RoundedCornerShape(14.dp))
+            .padding(horizontal = 18.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        Text(title, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+        Text(title.uppercase(), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
         content()
     }
 }
